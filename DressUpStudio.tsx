@@ -9,6 +9,7 @@ import {
 } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
+import Slider from '@react-native-community/slider';
 import {
   Image,
   Pressable,
@@ -18,6 +19,7 @@ import {
   View,
   type ImageSourcePropType,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type SelectedPhoto = {
   uri: string;
@@ -45,9 +47,21 @@ type DressOption = CatalogItem & {
   source: ImageSourcePropType;
 };
 
+type EarringArtwork = {
+  source: ImageSourcePropType;
+  aspectRatio: number;
+};
+
+type EarringPair = {
+  left: EarringArtwork;
+  right: EarringArtwork;
+};
+
 type AccessoryOption = CatalogItem & {
   category: AccessoryCategory;
-  icon: string;
+  icon?: string;
+  source?: ImageSourcePropType;
+  pair?: EarringPair;
 };
 
 type LayerItem = {
@@ -109,14 +123,83 @@ const dressOptions: DressOption[] = [
 
 const accessoryOptions: Record<AccessoryCategory, AccessoryOption[]> = {
   Sunglasses: [
-    { id: 'rose-shades', label: 'Rose Cat-Eye', category: 'Sunglasses', icon: '🕶️', aspectRatio: 1.55, color: '#E66FAF' },
-    { id: 'round-shades', label: 'Round Frames', category: 'Sunglasses', icon: '👓', aspectRatio: 1.45, color: '#9B64CC' },
-    { id: 'star-shades', label: 'Star Frames', category: 'Sunglasses', icon: '✨', aspectRatio: 1.35, color: '#D5A441' },
+    {
+      id: 'rose-shades',
+      label: 'Pink Heart Sunglasses',
+      category: 'Sunglasses',
+      source: require('./assets/sunglasses-pink.png.png'),
+      aspectRatio: 2057 / 764,
+      color: '#E66FAF',
+    },
+    {
+      id: 'round-shades',
+      label: 'Black Sunglasses',
+      category: 'Sunglasses',
+      source: require('./assets/sunglasses-black.png.png'),
+      aspectRatio: 2172 / 724,
+      color: '#333333',
+    },
+    {
+      id: 'star-shades',
+      label: 'Purple Flower Sunglasses',
+      category: 'Sunglasses',
+      source: require('./assets/sunglasses-purple.png.png'),
+      aspectRatio: 1983 / 793,
+      color: '#9B64CC',
+    },
   ],
   Earrings: [
-    { id: 'pearl-drops', label: 'Pearl Drops', category: 'Earrings', icon: '🤍', aspectRatio: 0.9, color: '#D5A441' },
-    { id: 'star-drops', label: 'Star Drops', category: 'Earrings', icon: '⭐', aspectRatio: 0.9, color: '#D99538' },
-    { id: 'crystal-drops', label: 'Crystal Drops', category: 'Earrings', icon: '💎', aspectRatio: 0.9, color: '#9D70D5' },
+    {
+      id: 'heart-earrings',
+      label: 'Heart Earrings',
+      category: 'Earrings',
+      pair: {
+        left: {
+          source: require('./assets/accessories/earrings-hearts-left.png'),
+          aspectRatio: 513 / 848,
+        },
+        right: {
+          source: require('./assets/accessories/earrings-hearts-right.png'),
+          aspectRatio: 511 / 851,
+        },
+      },
+      aspectRatio: 1,
+      color: '#D343B5',
+    },
+    {
+      id: 'hoop-earrings',
+      label: 'Gold Hoop Earrings',
+      category: 'Earrings',
+      pair: {
+        left: {
+          source: require('./assets/accessories/earrings-hoops-left.png'),
+          aspectRatio: 693 / 764,
+        },
+        right: {
+          source: require('./assets/accessories/earrings-hoops-right.png'),
+          aspectRatio: 690 / 764,
+        },
+      },
+      aspectRatio: 1,
+      color: '#D5A441',
+    },
+    {
+      id: 'diamond-earrings',
+      label: 'Diamond Earrings',
+      category: 'Earrings',
+      pair: {
+        left: {
+          source: require('./assets/accessories/earrings-diamonds-left.png'),
+          aspectRatio: 573 / 571,
+        },
+        right: {
+          source: require('./assets/accessories/earrings-diamonds-right.png'),
+          aspectRatio: 572 / 571,
+        },
+      },
+      aspectRatio: 1,
+      color: '#9D70D5',
+    },
   ],
   Necklaces: [
     { id: 'heart-necklace', label: 'Heart Charm', category: 'Necklaces', icon: '💜', aspectRatio: 1.2, color: '#C45BB3' },
@@ -191,12 +274,18 @@ const getAccessoryPosition = (
 export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioProps) {
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [activeCategory, setActiveCategory] = useState<WardrobeCategory | null>(null);
+  const [sizeSliderVisible, setSizeSliderVisible] = useState(false);
   const [editor, setEditor] = useState<EditorState>({
     items: [],
     selectedItemId: null,
     undoStack: [],
   });
   const accessoryIdCounter = useRef(0);
+  const accessoryScaleStart = useRef<{
+    itemId: string;
+    scale: number;
+    snapshot: EditorSnapshot;
+  } | null>(null);
 
   const imageScale = Math.min(canvasSize.width / photo.width, canvasSize.height / photo.height);
   const photoWidth = canvasSize.width > 0 ? photo.width * imageScale : 0;
@@ -205,12 +294,14 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
   const photoY = (canvasSize.height - photoHeight) / 2;
   const selectedItem =
     editor.items.find((item) => item.id === editor.selectedItemId) ?? null;
+  const selectedAccessory = selectedItem?.kind === 'accessory' ? selectedItem : null;
   const accessoriesForCategory =
     activeCategory && isAccessoryCategory(activeCategory)
       ? accessoryOptions[activeCategory]
       : null;
 
   const selectDress = (dress: DressOption) => {
+    setSizeSliderVisible(false);
     setEditor((current) => {
       const currentDress = current.items.find((item) => item.kind === 'dress');
       if (currentDress?.catalogId === dress.id) {
@@ -239,6 +330,50 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
   };
 
   const addAccessory = (option: AccessoryOption) => {
+    setSizeSliderVisible(false);
+
+    const pairArtwork = option.pair;
+    if (pairArtwork) {
+      const leftId = `accessory-${++accessoryIdCounter.current}`;
+      const rightId = `accessory-${++accessoryIdCounter.current}`;
+      setEditor((current) => {
+        const existingEarringCount = current.items.filter(
+          (item) => item.kind === 'accessory' && item.category === 'Earrings',
+        ).length;
+        const pairOffset = Math.floor(existingEarringCount / 2);
+        const xOffset = Math.max(32, Math.min(photoWidth * 0.18, 60));
+        const y = -photoHeight * 0.19 + pairOffset * Math.min(photoHeight * 0.045, 24);
+        const makeEarring = (
+          id: string,
+          side: 'left' | 'right',
+          x: number,
+        ): LayerItem => {
+          const artwork = pairArtwork[side];
+          return {
+            id,
+            catalogId: option.id,
+            kind: 'accessory',
+            category: 'Earrings',
+            label: `${option.label} (${side})`,
+            aspectRatio: artwork.aspectRatio,
+            color: option.color,
+            source: artwork.source,
+            x,
+            y,
+            scale: 1,
+            rotation: 0,
+          };
+        };
+        const pair = [
+          makeEarring(leftId, 'left', -xOffset),
+          makeEarring(rightId, 'right', xOffset),
+        ];
+
+        return commitEditorChange(current, [...current.items, ...pair], rightId);
+      });
+      return;
+    }
+
     const id = `accessory-${++accessoryIdCounter.current}`;
     setEditor((current) => {
       const categoryCount = current.items.filter(
@@ -254,6 +389,7 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
         aspectRatio: option.aspectRatio,
         color: option.color,
         icon: option.icon,
+        source: option.source,
         ...position,
         scale: 1,
         rotation: 0,
@@ -269,6 +405,7 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
   };
 
   const selectLayerItem = (itemId: string) => {
+    setSizeSliderVisible(false);
     setEditor((current) => {
       const index = current.items.findIndex((item) => item.id === itemId);
       if (index < 0) {
@@ -338,6 +475,7 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
   };
 
   const removeSelectedItem = () => {
+    setSizeSliderVisible(false);
     setEditor((current) => {
       if (!current.selectedItemId) {
         return current;
@@ -370,6 +508,7 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
   };
 
   const undo = () => {
+    setSizeSliderVisible(false);
     setEditor((current) => {
       const previous = current.undoStack[current.undoStack.length - 1];
       if (!previous) {
@@ -380,6 +519,57 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
         items: previous.items,
         selectedItemId: previous.selectedItemId,
         undoStack: current.undoStack.slice(0, -1),
+      };
+    });
+  };
+
+  const beginAccessoryResize = () => {
+    if (!selectedAccessory) {
+      return;
+    }
+
+    accessoryScaleStart.current = {
+      itemId: selectedAccessory.id,
+      scale: selectedAccessory.scale,
+      snapshot: snapshotState(editor),
+    };
+  };
+
+  const updateAccessoryScale = (scale: number) => {
+    const itemId = accessoryScaleStart.current?.itemId;
+    if (!itemId) {
+      return;
+    }
+
+    setEditor((current) => {
+      const item = current.items.find((entry) => entry.id === itemId);
+      if (!item || item.kind !== 'accessory' || Math.abs(item.scale - scale) < 0.001) {
+        return current;
+      }
+
+      const items = current.items.map((entry) =>
+        entry.id === itemId ? { ...entry, scale } : entry,
+      );
+      return { ...current, items };
+    });
+  };
+
+  const finishAccessoryResize = () => {
+    const start = accessoryScaleStart.current;
+    accessoryScaleStart.current = null;
+    if (!start) {
+      return;
+    }
+
+    setEditor((current) => {
+      const item = current.items.find((entry) => entry.id === start.itemId);
+      if (!item || Math.abs(item.scale - start.scale) < 0.001) {
+        return current;
+      }
+
+      return {
+        ...current,
+        undoStack: [...current.undoStack, start.snapshot].slice(-50),
       };
     });
   };
@@ -441,7 +631,9 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
               onPress={() => addAccessory(option)}
               style={styles.catalogCard}
             >
-              <AccessoryArtwork option={option} small />
+              {option.pair
+                ? <EarringPairArtwork pair={option.pair} />
+                : <AccessoryArtwork option={option} small />}
               <Text numberOfLines={1} style={styles.catalogLabel}>{option.label}</Text>
             </Pressable>
           ))}
@@ -463,7 +655,7 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
   };
 
   return (
-    <View style={styles.studioContent}>
+    <SafeAreaView edges={['top', 'bottom']} style={styles.studioContent}>
       <View style={styles.studioHeader}>
         <Pressable
           accessibilityRole="button"
@@ -524,6 +716,57 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
             </View>
           )}
         </View>
+
+        {selectedAccessory && !sizeSliderVisible && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Resize ${selectedAccessory.label}`}
+            onPress={() => setSizeSliderVisible(true)}
+            style={({ pressed }) => [
+              styles.sizeButton,
+              selectedAccessory.x >= 0 ? styles.lowerLeftControl : styles.lowerRightControl,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.sizeButtonText}>Size</Text>
+          </Pressable>
+        )}
+
+        {selectedAccessory && sizeSliderVisible && (
+          <View
+            style={[
+              styles.floatingSizeControl,
+              selectedAccessory.x >= 0 ? styles.lowerLeftControl : styles.lowerRightControl,
+            ]}
+          >
+            <Text style={styles.floatingSizeLabel}>Size</Text>
+            <Slider
+              accessibilityLabel={`Size of ${selectedAccessory.label}`}
+              maximumTrackTintColor="#E4D4EA"
+              maximumValue={3}
+              minimumTrackTintColor="#B3519A"
+              minimumValue={0.25}
+              onSlidingComplete={(value) => {
+                updateAccessoryScale(value);
+                finishAccessoryResize();
+              }}
+              onSlidingStart={beginAccessoryResize}
+              onValueChange={updateAccessoryScale}
+              step={0.01}
+              style={styles.sizeSlider}
+              thumbTintColor="#A64FC1"
+              value={selectedAccessory.scale}
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Done adjusting size"
+              onPress={() => setSizeSliderVisible(false)}
+              style={({ pressed }) => [styles.doneButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.doneButtonText}>Done</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       <View style={styles.editingControls}>
@@ -590,7 +833,7 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
           ))}
         </ScrollView>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -636,10 +879,26 @@ function EditableLayerItem({
     rotation.value = item.rotation;
   }, [item.x, item.y, item.scale, item.rotation, rotation, scale, translateX, translateY]);
 
-  const maxWidth = item.kind === 'dress' ? photoWidth * 0.78 : photoWidth * 0.4;
-  const maxHeight = item.kind === 'dress' ? photoHeight * 0.78 : photoHeight * 0.3;
-  const itemWidth = Math.min(maxWidth, maxHeight * item.aspectRatio);
-  const itemHeight = itemWidth / item.aspectRatio;
+  const isEarring = item.category === 'Earrings';
+  const maxWidth = item.kind === 'dress'
+    ? photoWidth * 0.78
+    : item.category === 'Sunglasses'
+      ? photoWidth * 0.38
+      : photoWidth * 0.4;
+  const maxHeight = item.kind === 'dress'
+    ? photoHeight * 0.78
+    : item.category === 'Sunglasses'
+      ? photoHeight * 0.18
+      : photoHeight * 0.3;
+  const itemWidth = isEarring
+    ? Math.max(56, photoWidth * 0.14)
+    : Math.min(maxWidth, maxHeight * item.aspectRatio);
+  const itemHeight = isEarring
+    ? Math.max(56, photoHeight * 0.12)
+    : itemWidth / item.aspectRatio;
+  const earringArtworkStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }, { rotate: `${rotation.value}rad` }],
+  }));
 
   /* eslint-disable react-hooks/immutability -- Gesture worklets update Reanimated SharedValues on the UI thread. */
   const beginGesture = () => {
@@ -764,7 +1023,9 @@ function EditableLayerItem({
     left: (photoWidth - itemWidth) / 2 + translateX.value,
     top: (photoHeight - itemHeight) / 2 + translateY.value,
     zIndex: layerIndex + 1,
-    transform: [{ scale: scale.value }, { rotate: `${rotation.value}rad` }],
+    transform: isEarring
+      ? []
+      : [{ scale: scale.value }, { rotate: `${rotation.value}rad` }],
   }));
 
   return (
@@ -776,15 +1037,23 @@ function EditableLayerItem({
         style={[
           styles.layerItem,
           animatedStyle,
-          selected && styles.selectedLayerItem,
+          selected && !isEarring && styles.selectedLayerItem,
         ]}
       >
-        {item.kind === 'dress' && item.source ? (
+        {item.source && isEarring ? (
+          <Animated.Image
+            accessible={false}
+            pointerEvents="none"
+            resizeMode="contain"
+            source={item.source}
+            style={[styles.earringLayerImage, earringArtworkStyle]}
+          />
+        ) : item.source ? (
           <Image
             accessible={false}
             resizeMode="contain"
             source={item.source}
-            style={styles.layerImage}
+            style={isEarring ? styles.earringLayerImage : styles.layerImage}
           />
         ) : (
           <View style={styles.accessoryOverlay}>
@@ -819,9 +1088,37 @@ function AccessoryArtwork({
         { borderColor: option?.color ?? color ?? '#B3519A' },
       ]}
     >
-      <Text style={[styles.accessoryGlyph, small && styles.smallAccessoryGlyph]}>
-        {option?.icon ?? icon ?? '✨'}
-      </Text>
+      {option?.source ? (
+        <Image
+          accessible={false}
+          resizeMode="contain"
+          source={option.source}
+          style={styles.accessoryImage}
+        />
+      ) : (
+        <Text style={[styles.accessoryGlyph, small && styles.smallAccessoryGlyph]}>
+          {option?.icon ?? icon ?? '✨'}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function EarringPairArtwork({ pair }: { pair: EarringPair }) {
+  return (
+    <View style={styles.earringPairPreview}>
+      <Image
+        accessible={false}
+        resizeMode="contain"
+        source={pair.left.source}
+        style={styles.earringPreviewImage}
+      />
+      <Image
+        accessible={false}
+        resizeMode="contain"
+        source={pair.right.source}
+        style={styles.earringPreviewImage}
+      />
     </View>
   );
 }
@@ -905,6 +1202,7 @@ const styles = StyleSheet.create({
   photoArea: {
     flex: 1,
     minHeight: 150,
+    position: 'relative',
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 8,
@@ -951,6 +1249,22 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  earringLayerImage: {
+    width: '76%',
+    height: '84%',
+  },
+  earringPairPreview: {
+    width: 66,
+    height: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  earringPreviewImage: {
+    width: 25,
+    height: 58,
+  },
   accessoryOverlay: {
     width: '100%',
     height: '100%',
@@ -970,6 +1284,10 @@ const styles = StyleSheet.create({
   accessoryGlyph: {
     fontSize: 38,
   },
+  accessoryImage: {
+    width: '92%',
+    height: '90%',
+  },
   overlayLabel: {
     maxWidth: '100%',
     color: '#684B70',
@@ -984,6 +1302,79 @@ const styles = StyleSheet.create({
     gap: 7,
     paddingHorizontal: 16,
     marginBottom: 6,
+  },
+  sizeButton: {
+    position: 'absolute',
+    bottom: 12,
+    zIndex: 5,
+    minWidth: 64,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: '#C54AB7',
+    shadowColor: '#8C3A83',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+  sizeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  lowerLeftControl: {
+    left: 12,
+  },
+  lowerRightControl: {
+    right: 12,
+  },
+  floatingSizeControl: {
+    position: 'absolute',
+    bottom: 12,
+    zIndex: 5,
+    width: 260,
+    maxWidth: '90%',
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#F0D8EB',
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    shadowColor: '#76537A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  floatingSizeLabel: {
+    width: 36,
+    color: '#78438E',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sizeSlider: {
+    flex: 1,
+    height: 40,
+  },
+  doneButton: {
+    minWidth: 52,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    backgroundColor: '#F1E2F8',
+  },
+  doneButtonText: {
+    color: '#78438E',
+    fontSize: 12,
+    fontWeight: '700',
   },
   controlRow: {
     flexDirection: 'row',

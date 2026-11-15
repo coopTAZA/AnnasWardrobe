@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import {
   Alert,
@@ -129,17 +130,19 @@ export default function App() {
   if (screen === 'studio' && selectedPhoto) {
     return (
       <GestureHandlerRootView style={styles.container}>
-        <StatusBar style="dark" />
-        <View pointerEvents="none" style={styles.glowTop} />
-        <View pointerEvents="none" style={styles.glowBottom} />
-        <DressUpStudio
-          onBack={() => {
-            setScreen('welcome');
-            setSelectedPhoto(null);
-          }}
-          onSave={() => showComingSoon('Saving')}
-          photo={selectedPhoto}
-        />
+        <SafeAreaProvider style={{ flex: 1 }}>
+          <StatusBar style="dark" />
+          <View pointerEvents="none" style={styles.glowTop} />
+          <View pointerEvents="none" style={styles.glowBottom} />
+          <DressUpStudio
+            onBack={() => {
+              setScreen('welcome');
+              setSelectedPhoto(null);
+            }}
+            onSave={() => showComingSoon('Saving')}
+            photo={selectedPhoto}
+          />
+        </SafeAreaProvider>
       </GestureHandlerRootView>
     );
   }
