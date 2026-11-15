@@ -6,6 +6,16 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Anna's Wardrobe uses your photos so you can choose a picture to dress up.",
+          "cameraPermission": "Anna's Wardrobe uses the camera so you can take a picture to dress up.",
+          "microphonePermission": false
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true
     },
