@@ -1,7 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import {
   Alert,
@@ -13,11 +13,11 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import CreationsGallery from './CreationsGallery';
+import CameraCapture from './CameraCapture';
 import DressUpStudio from './DressUpStudio';
 
-const welcomeArtwork = require('./assets/welcome.png.jpg');
-const artworkAspectRatio = 2048 / 924;
-const emblemCenterRatio = 0.214;
+const annaAvatar = require('./assets/anna-avatar.png.png');
 
 type SelectedPhoto = {
   uri: string;
@@ -26,12 +26,18 @@ type SelectedPhoto = {
 };
 
 export default function App() {
-  const { width } = useWindowDimensions();
-  const compact = width < 360;
-  const contentWidth = Math.min(width - 44, 480);
-  const artworkHeight = contentWidth * artworkAspectRatio;
-  const [screen, setScreen] = useState<'welcome' | 'studio'>('welcome');
+  const { width, height } = useWindowDimensions();
+  const compact = width < 360 || height < 700;
+  const contentWidth = Math.min(width - 40, 480);
+  const avatarSize = Math.min(compact ? 195 : 246, contentWidth * 0.76);
+  const [homeViewportHeight, setHomeViewportHeight] = useState(0);
+  const [homeContentHeight, setHomeContentHeight] = useState(0);
+  const [screen, setScreen] = useState<'welcome' | 'camera' | 'studio' | 'gallery'>('welcome');
   const [selectedPhoto, setSelectedPhoto] = useState<SelectedPhoto | null>(null);
+  const contentShift =
+    homeViewportHeight > 0 && homeContentHeight > 0
+      ? Math.min(50, Math.max(0, (homeViewportHeight - homeContentHeight) / 2 - 6))
+      : 0;
 
   const showComingSoon = (feature: string) => {
     Alert.alert('Coming soon', `${feature} will be available soon.`);
@@ -45,45 +51,6 @@ export default function App() {
   const openStudio = (photo: SelectedPhoto) => {
     setSelectedPhoto(photo);
     setScreen('studio');
-  };
-
-  const takePhoto = async () => {
-    try {
-      const currentPermission = await ImagePicker.getCameraPermissionsAsync();
-      const permission = currentPermission.granted
-        ? currentPermission
-        : await ImagePicker.requestCameraPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert(
-          'Camera access needed',
-          permission.canAskAgain
-            ? 'Please allow camera access to take a photo.'
-            : 'Please enable camera access in your device settings to take a photo.',
-        );
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 1,
-      });
-
-      if (result.canceled) {
-        return;
-      }
-
-      const photo = result.assets[0];
-      if (!photo || photo.width <= 0 || photo.height <= 0) {
-        Alert.alert('No photo captured', 'Please try taking your photo again.');
-        return;
-      }
-
-      openStudio({ uri: photo.uri, width: photo.width, height: photo.height });
-    } catch (error) {
-      showPickerError('Unable to open the camera', error);
-    }
   };
 
   const choosePhoto = async () => {
@@ -127,6 +94,31 @@ export default function App() {
     }
   };
 
+  const startDressingUp = () => {
+    Alert.alert('Start Dressing Up', 'Choose how you would like to add a photo.', [
+      { text: 'Take a Photo', onPress: () => setScreen('camera') },
+      { text: 'Choose a Photo', onPress: () => { void choosePhoto(); } },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  if (screen === 'camera') {
+    return (
+      <GestureHandlerRootView style={styles.container}>
+        <SafeAreaProvider style={{ flex: 1 }}>
+          <StatusBar style="light" />
+          <CameraCapture
+            onBack={() => {
+              setScreen('welcome');
+              setSelectedPhoto(null);
+            }}
+            onPhotoCaptured={openStudio}
+          />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
   if (screen === 'studio' && selectedPhoto) {
     return (
       <GestureHandlerRootView style={styles.container}>
@@ -139,7 +131,7 @@ export default function App() {
               setScreen('welcome');
               setSelectedPhoto(null);
             }}
-            onSave={() => showComingSoon('Saving')}
+            onSave={() => Alert.alert('Saved!', 'Your creation has been saved! 💖')}
             photo={selectedPhoto}
           />
         </SafeAreaProvider>
@@ -147,96 +139,116 @@ export default function App() {
     );
   }
 
+  if (screen === 'gallery') {
+    return (
+      <GestureHandlerRootView style={styles.container}>
+        <SafeAreaProvider style={{ flex: 1 }}>
+          <StatusBar style="dark" />
+          <View pointerEvents="none" style={styles.glowTop} />
+          <View pointerEvents="none" style={styles.glowBottom} />
+          <CreationsGallery onBack={() => setScreen('welcome')} />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
   return (
     <GestureHandlerRootView style={styles.container}>
-      <StatusBar style="dark" />
-      <View pointerEvents="none" style={styles.glowTop} />
-      <View pointerEvents="none" style={styles.glowBottom} />
+      <SafeAreaProvider style={{ flex: 1 }}>
+        <StatusBar style="dark" />
+        <View pointerEvents="none" style={styles.glowTop} />
+        <View pointerEvents="none" style={styles.glowBottom} />
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.content}>
-          <View style={styles.topBar}>
-            <View style={styles.topBarSpacer} />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Settings"
-              onPress={() => showComingSoon('Settings')}
-              style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]}
+        <SafeAreaView edges={['top', 'bottom']} style={styles.homeSafeArea}>
+          <ScrollView
+            contentContainerStyle={[
+              styles.scrollContent,
+              compact && styles.compactScrollContent,
+            ]}
+            onLayout={(event) => setHomeViewportHeight(event.nativeEvent.layout.height)}
+            showsVerticalScrollIndicator={false}
+          >
+            <View
+              onLayout={(event) => setHomeContentHeight(event.nativeEvent.layout.height)}
+              style={[
+                styles.content,
+                { width: contentWidth, transform: [{ translateY: -contentShift }] },
+              ]}
             >
-              <Text style={styles.settingsIcon}>⚙︎</Text>
-            </Pressable>
-          </View>
+              <View style={[styles.topBar, compact && styles.compactTopBar]}>
+                <View style={styles.topBarSpacer} />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Settings"
+                  onPress={() => showComingSoon('Settings')}
+                  style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.settingsIcon}>⚙︎</Text>
+                </Pressable>
+              </View>
 
-          <View style={styles.heroRow}>
-            <Text accessible={false} style={[styles.sparkle, styles.leftSparkle]}>✦</Text>
-            <View style={styles.artworkCrop}>
-              <Image
-                accessible={false}
-                resizeMode="stretch"
-                source={welcomeArtwork}
+              <Text style={[styles.title, compact && styles.compactTitle]}>
+                Anna&apos;s{'\n'}
+                <Text style={styles.titleAccent}>Wardrobe</Text>
+              </Text>
+              <Text style={[styles.subtitle, compact && styles.compactSubtitle]}>
+                Dress up, sparkle &amp; create!
+              </Text>
+
+              <View
                 style={[
-                  styles.artworkImage,
-                  {
-                    width: contentWidth,
-                    height: artworkHeight,
-                    left: (styles.artworkCrop.width - contentWidth) / 2,
-                    top: styles.artworkCrop.height / 2 + 10 - artworkHeight * emblemCenterRatio,
-                  },
+                  styles.avatarFrame,
+                  { width: avatarSize, height: avatarSize },
                 ]}
-              />
+              >
+                <Image
+                  accessible={false}
+                  resizeMode="contain"
+                  source={annaAvatar}
+                  style={styles.avatarImage}
+                />
+                <Text accessible={false} style={[styles.avatarSparkle, styles.avatarSparkleLeft]}>✦</Text>
+                <Text accessible={false} style={[styles.avatarSparkle, styles.avatarSparkleRight]}>✧</Text>
+              </View>
+
+              <View style={[styles.buttonList, compact && styles.compactButtonList]}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Start Dressing Up"
+                  onPress={startDressingUp}
+                  style={({ pressed }) => [styles.actionButton, styles.pinkButton, pressed && styles.pressed]}
+                >
+                  <Text accessible={false} style={styles.buttonIcon}>✨</Text>
+                  <Text adjustsFontSizeToFit numberOfLines={1} style={styles.buttonText}>
+                    Start Dressing Up
+                  </Text>
+                  <Text accessible={false} style={styles.buttonArrow}>›</Text>
+                </Pressable>
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="My Creations"
+                  onPress={() => setScreen('gallery')}
+                  style={({ pressed }) => [styles.actionButton, styles.purpleButton, pressed && styles.pressed]}
+                >
+                  <Text accessible={false} style={styles.buttonIcon}>💜</Text>
+                  <Text adjustsFontSizeToFit numberOfLines={1} style={styles.buttonText}>
+                    My Creations
+                  </Text>
+                  <Text accessible={false} style={styles.buttonArrow}>›</Text>
+                </Pressable>
+              </View>
+
+              <Text
+                accessible={false}
+                style={[styles.bottomSparkle, compact && styles.compactBottomSparkle]}
+              >
+                ✧　✦　✧
+              </Text>
             </View>
-            <Text accessible={false} style={[styles.sparkle, styles.rightSparkle]}>✧</Text>
-          </View>
-
-          <Text style={[styles.title, compact && styles.compactTitle]}>
-            Anna&apos;s{'\n'}
-            <Text style={styles.titleAccent}>Wardrobe</Text>
-          </Text>
-          <Text style={styles.subtitle}>
-            Dream up a look and let your{'\n'}creativity sparkle.
-          </Text>
-
-          <View style={styles.buttonList}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Take a Photo"
-              onPress={takePhoto}
-              style={({ pressed }) => [styles.actionButton, styles.pinkButton, pressed && styles.pressed]}
-            >
-              <Text style={styles.buttonIcon}>📸</Text>
-              <Text style={styles.buttonText}>Take a Photo</Text>
-              <Text style={styles.buttonArrow}>›</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Choose a Photo"
-              onPress={choosePhoto}
-              style={({ pressed }) => [styles.actionButton, styles.purpleButton, pressed && styles.pressed]}
-            >
-              <Text style={styles.buttonIcon}>🖼️</Text>
-              <Text style={styles.buttonText}>Choose a Photo</Text>
-              <Text style={styles.buttonArrow}>›</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="My Creations"
-              onPress={() => showComingSoon('My Creations')}
-              style={({ pressed }) => [styles.actionButton, styles.pinkPurpleButton, pressed && styles.pressed]}
-            >
-              <Text style={styles.buttonIcon}>✨</Text>
-              <Text style={styles.buttonText}>My Creations</Text>
-              <Text style={styles.buttonArrow}>›</Text>
-            </Pressable>
-          </View>
-
-          <Text accessible={false} style={styles.bottomSparkle}>✧　✦　✧</Text>
-        </View>
-      </ScrollView>
+          </ScrollView>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
@@ -247,17 +259,22 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#FFF5FB',
   },
+  homeSafeArea: {
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingVertical: 18,
+    paddingVertical: 14,
+  },
+  compactScrollContent: {
+    paddingVertical: 4,
   },
   content: {
-    width: '100%',
     maxWidth: 480,
     alignSelf: 'center',
     alignItems: 'center',
-    paddingHorizontal: 22,
+    paddingHorizontal: 8,
   },
   glowTop: {
     position: 'absolute',
@@ -283,7 +300,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 6,
+  },
+  compactTopBar: {
+    height: 48,
+    marginBottom: 4,
   },
   topBarSpacer: {
     width: 48,
@@ -306,71 +327,80 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 24,
   },
-  heroRow: {
-    width: '100%',
-    height: 112,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  artworkCrop: {
-    width: 112,
-    height: 112,
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 52,
-    backgroundColor: '#FFFFFF',
-  },
-  artworkImage: {
-    position: 'absolute',
-  },
-  sparkle: {
-    color: '#D99538',
-    fontWeight: '700',
-  },
-  leftSparkle: {
-    fontSize: 23,
-    marginRight: 19,
-    marginTop: -32,
-  },
-  rightSparkle: {
-    color: '#BC6BC0',
-    fontSize: 19,
-    marginLeft: 19,
-    marginTop: 31,
-  },
   title: {
     color: '#51345C',
-    fontSize: 42,
+    fontSize: 40,
     fontWeight: '800',
-    lineHeight: 48,
+    lineHeight: 44,
     letterSpacing: -1.5,
     textAlign: 'center',
   },
   compactTitle: {
-    fontSize: 37,
-    lineHeight: 43,
+    fontSize: 35,
+    lineHeight: 39,
   },
   titleAccent: {
     color: '#B3519A',
   },
   subtitle: {
     color: '#88748F',
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 16,
+    lineHeight: 23,
     textAlign: 'center',
-    marginTop: 10,
-    marginBottom: 24,
+    marginTop: 7,
+    marginBottom: 12,
+  },
+  compactSubtitle: {
+    marginTop: 5,
+    marginBottom: 8,
+  },
+  avatarFrame: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 38,
+    borderWidth: 5,
+    borderColor: '#FFFFFF',
+    backgroundColor: '#F7E5F5',
+    shadowColor: '#794C90',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarSparkle: {
+    position: 'absolute',
+    color: '#FFF5A8',
+    fontSize: 22,
+    fontWeight: '800',
+    textShadowColor: '#B3519A',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  avatarSparkleLeft: {
+    top: 16,
+    left: 16,
+  },
+  avatarSparkleRight: {
+    right: 15,
+    bottom: 20,
   },
   buttonList: {
     width: '100%',
-    gap: 14,
+    gap: 12,
+    marginTop: 16,
+  },
+  compactButtonList: {
+    gap: 10,
+    marginTop: 12,
   },
   actionButton: {
-    minHeight: 70,
+    minHeight: 68,
     borderRadius: 24,
-    paddingHorizontal: 18,
+    paddingHorizontal: 17,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#7D347A',
@@ -385,16 +415,13 @@ const styles = StyleSheet.create({
   purpleButton: {
     backgroundColor: '#9152D5',
   },
-  pinkPurpleButton: {
-    backgroundColor: '#B34BC5',
-  },
   pressed: {
     opacity: 0.85,
     transform: [{ scale: 0.985 }],
   },
   buttonIcon: {
-    width: 38,
-    fontSize: 23,
+    width: 40,
+    fontSize: 24,
     textAlign: 'center',
     marginRight: 10,
   },
@@ -416,6 +443,9 @@ const styles = StyleSheet.create({
     color: '#C58AC1',
     fontSize: 15,
     letterSpacing: 4,
-    marginTop: 21,
+    marginTop: 14,
+  },
+  compactBottomSparkle: {
+    marginTop: 8,
   },
 });

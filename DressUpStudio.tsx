@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
+import { Directory, File, Paths } from 'expo-file-system';
 import {
   GestureDetector,
   usePanGesture,
@@ -7,10 +8,16 @@ import {
   useSimultaneousGestures,
   useTapGesture,
 } from 'react-native-gesture-handler';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  type SharedValue,
+} from 'react-native-reanimated';
+import { captureRef } from 'react-native-view-shot';
 import { scheduleOnRN } from 'react-native-worklets';
-import Slider from '@react-native-community/slider';
+import Slider, { type SliderRef } from '@react-native-community/slider';
 import {
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -66,6 +73,7 @@ type AccessoryOption = CatalogItem & {
 
 type LayerItem = {
   id: string;
+  pairId?: string;
   catalogId: string;
   kind: 'dress' | 'accessory';
   category: WardrobeCategory;
@@ -96,6 +104,8 @@ type DressUpStudioProps = {
   onBack: () => void;
   onSave: () => void;
 };
+
+const getLayerImageKey = (item: LayerItem) => `layer:${item.id}:${item.catalogId}`;
 
 const dressOptions: DressOption[] = [
   {
@@ -202,19 +212,82 @@ const accessoryOptions: Record<AccessoryCategory, AccessoryOption[]> = {
     },
   ],
   Necklaces: [
-    { id: 'heart-necklace', label: 'Heart Charm', category: 'Necklaces', icon: '💜', aspectRatio: 1.2, color: '#C45BB3' },
-    { id: 'pearl-necklace', label: 'Pearl Strand', category: 'Necklaces', icon: '📿', aspectRatio: 1.2, color: '#D5A441' },
-    { id: 'star-necklace', label: 'Star Pendant', category: 'Necklaces', icon: '🌟', aspectRatio: 1.2, color: '#D99538' },
+    {
+      id: 'heart-necklace',
+      label: 'Heart Necklace',
+      category: 'Necklaces',
+      source: require('./assets/necklace-heart.png.png'),
+      aspectRatio: 1536 / 1024,
+      color: '#C45BB3',
+    },
+    {
+      id: 'pearl-necklace',
+      label: 'Pearl Necklace',
+      category: 'Necklaces',
+      source: require('./assets/necklace-pearls.png.png'),
+      aspectRatio: 1536 / 1024,
+      color: '#D5A441',
+    },
+    {
+      id: 'butterfly-necklace',
+      label: 'Butterfly Necklace',
+      category: 'Necklaces',
+      source: require('./assets/necklace-butterfly.png.png'),
+      aspectRatio: 1536 / 1024,
+      color: '#D99538',
+    },
   ],
   Handbags: [
-    { id: 'pink-satchel', label: 'Pink Satchel', category: 'Handbags', icon: '👜', aspectRatio: 0.95, color: '#E66FAF' },
-    { id: 'lavender-clutch', label: 'Lavender Clutch', category: 'Handbags', icon: '👛', aspectRatio: 0.95, color: '#9B64CC' },
-    { id: 'gem-backpack', label: 'Gem Backpack', category: 'Handbags', icon: '🎒', aspectRatio: 0.95, color: '#6A8EDB' },
+    {
+      id: 'pink-princess',
+      label: 'Pink Princess',
+      category: 'Handbags',
+      source: require('./assets/handbag-pink.png.png'),
+      aspectRatio: 1312 / 1199,
+      color: '#E66FAF',
+    },
+    {
+      id: 'purple-glitter',
+      label: 'Purple Glitter',
+      category: 'Handbags',
+      source: require('./assets/handbag-purple.png.png'),
+      aspectRatio: 1312 / 1199,
+      color: '#9B64CC',
+    },
+    {
+      id: 'silver-sparkle',
+      label: 'Silver Sparkle',
+      category: 'Handbags',
+      source: require('./assets/handbag-silver.png.png'),
+      aspectRatio: 1312 / 1199,
+      color: '#A8A6AF',
+    },
   ],
   Hats: [
-    { id: 'sun-hat', label: 'Sun Hat', category: 'Hats', icon: '👒', aspectRatio: 1.3, color: '#E6A55A' },
-    { id: 'royal-crown', label: 'Royal Crown', category: 'Hats', icon: '👑', aspectRatio: 1.3, color: '#D5A441' },
-    { id: 'star-hat', label: 'Star Hat', category: 'Hats', icon: '🎀', aspectRatio: 1.3, color: '#C45BB3' },
+    {
+      id: 'pink-princess-tiara',
+      label: 'Pink Princess Tiara',
+      category: 'Hats',
+      source: require('./assets/hat-tiara.png'),
+      aspectRatio: 718 / 515,
+      color: '#D9438F',
+    },
+    {
+      id: 'purple-glitter-fedora',
+      label: 'Purple Glitter Fedora',
+      category: 'Hats',
+      source: require('./assets/hat-purple.png'),
+      aspectRatio: 744 / 515,
+      color: '#8D45C1',
+    },
+    {
+      id: 'pink-floral-sunhat',
+      label: 'Pink Floral Sunhat',
+      category: 'Hats',
+      source: require('./assets/hat-sun.png'),
+      aspectRatio: 759 / 531,
+      color: '#E66FAF',
+    },
   ],
 };
 
@@ -273,16 +346,31 @@ const getAccessoryPosition = (
 
 export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioProps) {
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  const [zoomState, setZoomState] = useState(() => ({ photoUri: photo.uri, level: 1 }));
+  const photoZoomLevel = zoomState.photoUri === photo.uri ? zoomState.level : 1;
+  const [zoomSliderSize, setZoomSliderSize] = useState({ width: 0, height: 0 });
   const [activeCategory, setActiveCategory] = useState<WardrobeCategory | null>(null);
   const [sizeSliderVisible, setSizeSliderVisible] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [loadedImageKeys, setLoadedImageKeys] = useState<Set<string>>(() => new Set());
+  const [failedImageKeys, setFailedImageKeys] = useState<Set<string>>(() => new Set());
   const [editor, setEditor] = useState<EditorState>({
     items: [],
     selectedItemId: null,
     undoStack: [],
   });
+  const photoZoom = useSharedValue(1);
+  const photoPanX = useSharedValue(0);
+  const photoPanY = useSharedValue(0);
+  const photoPanStartX = useSharedValue(0);
+  const photoPanStartY = useSharedValue(0);
+  const captureViewRef = useRef<ComponentRef<typeof View> | null>(null);
+  const zoomSliderRef = useRef<SliderRef | null>(null);
+  const alertedImageErrors = useRef(new Set<string>());
   const accessoryIdCounter = useRef(0);
   const accessoryScaleStart = useRef<{
     itemId: string;
+    pairId?: string;
     scale: number;
     snapshot: EditorSnapshot;
   } | null>(null);
@@ -292,6 +380,72 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
   const photoHeight = canvasSize.height > 0 ? photo.height * imageScale : 0;
   const photoX = (canvasSize.width - photoWidth) / 2;
   const photoY = (canvasSize.height - photoHeight) / 2;
+  useEffect(() => {
+    photoZoom.value = 1;
+    photoPanX.value = 0;
+    photoPanY.value = 0;
+    zoomSliderRef.current?.updateValue(1);
+  }, [photo.uri, photoPanX, photoPanY, photoZoom]);
+
+  /* eslint-disable react-hooks/immutability -- Pan gestures update Reanimated values on the UI thread. */
+  const photoPanGesture = usePanGesture({
+    enabled: photoZoomLevel > 1,
+    runOnJS: false,
+    onActivate: () => {
+      'worklet';
+      photoPanStartX.value = photoPanX.value;
+      photoPanStartY.value = photoPanY.value;
+    },
+    onUpdate: (event) => {
+      'worklet';
+      const maxPanX = (photoWidth * (photoZoom.value - 1)) / 2;
+      const maxPanY = (photoHeight * (photoZoom.value - 1)) / 2;
+      photoPanX.value = Math.max(
+        -maxPanX,
+        Math.min(maxPanX, photoPanStartX.value + event.translationX),
+      );
+      photoPanY.value = Math.max(
+        -maxPanY,
+        Math.min(maxPanY, photoPanStartY.value + event.translationY),
+      );
+    },
+  });
+  /* eslint-enable react-hooks/immutability */
+
+  const compositionPositionStyle = useAnimatedStyle(() => ({
+    left: photoPanX.value,
+    top: photoPanY.value,
+  }));
+  const compositionScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: photoZoom.value }],
+  }));
+
+  /* eslint-disable react-hooks/immutability -- Keep the gesture zoom synchronized with its displayed scale. */
+  const updatePhotoZoom = (value: number) => {
+    const zoom = Math.max(1, Math.min(4, value));
+    photoZoom.value = zoom;
+    setZoomState({ photoUri: photo.uri, level: zoom });
+
+    const maxPanX = (photoWidth * (zoom - 1)) / 2;
+    const maxPanY = (photoHeight * (zoom - 1)) / 2;
+    photoPanX.value = Math.max(-maxPanX, Math.min(maxPanX, photoPanX.value));
+    photoPanY.value = Math.max(-maxPanY, Math.min(maxPanY, photoPanY.value));
+  };
+  /* eslint-enable react-hooks/immutability */
+
+  const resetPhotoZoom = () => {
+    updatePhotoZoom(1);
+    zoomSliderRef.current?.updateValue(1);
+  };
+
+  const photoImageKey = `photo:${photo.uri}`;
+  const requiredImageKeys = [
+    photoImageKey,
+    ...editor.items.filter((item) => item.source).map(getLayerImageKey),
+  ];
+  const hasImageLoadError = requiredImageKeys.some((key) => failedImageKeys.has(key));
+  const imagesReady =
+    !hasImageLoadError && requiredImageKeys.every((key) => loadedImageKeys.has(key));
   const selectedItem =
     editor.items.find((item) => item.id === editor.selectedItemId) ?? null;
   const selectedAccessory = selectedItem?.kind === 'accessory' ? selectedItem : null;
@@ -299,6 +453,114 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
     activeCategory && isAccessoryCategory(activeCategory)
       ? accessoryOptions[activeCategory]
       : null;
+
+  const markImageLoaded = (imageKey: string) => {
+    setLoadedImageKeys((current) => {
+      if (current.has(imageKey)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.add(imageKey);
+      return next;
+    });
+    setFailedImageKeys((current) => {
+      if (!current.has(imageKey)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.delete(imageKey);
+      return next;
+    });
+  };
+
+  const markImageFailed = (imageKey: string) => {
+    setFailedImageKeys((current) => {
+      if (current.has(imageKey)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.add(imageKey);
+      return next;
+    });
+    if (!alertedImageErrors.current.has(imageKey)) {
+      alertedImageErrors.current.add(imageKey);
+      Alert.alert(
+        'Unable to load image',
+        'A photo or accessory could not be loaded, so this creation cannot be saved.',
+      );
+    }
+  };
+
+  /* eslint-disable react-hooks/immutability -- Temporarily reset shared zoom values for an unzoomed capture. */
+  const saveCreation = async () => {
+    if (isSaving) {
+      return;
+    }
+    if (!imagesReady) {
+      Alert.alert(
+        hasImageLoadError ? 'Unable to save creation' : 'Still loading',
+        hasImageLoadError
+          ? 'A photo or accessory could not be loaded. Please try again.'
+          : 'Please wait for the photo and accessories to finish loading.',
+      );
+      return;
+    }
+    if (photoWidth <= 0 || photoHeight <= 0) {
+      Alert.alert('Unable to save creation', 'The photo is not ready yet. Please try again.');
+      return;
+    }
+
+    const savedZoom = photoZoom.value;
+    const savedPanX = photoPanX.value;
+    const savedPanY = photoPanY.value;
+    setIsSaving(true);
+    try {
+      photoZoom.value = 1;
+      photoPanX.value = 0;
+      photoPanY.value = 0;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const captureView = captureViewRef.current;
+      if (!captureView) {
+        throw new Error('The photo canvas is not available for capture.');
+      }
+
+      const capturedUri = await captureRef(captureView, {
+        format: 'png',
+        result: 'tmpfile',
+      });
+      photoZoom.value = savedZoom;
+      photoPanX.value = savedPanX;
+      photoPanY.value = savedPanY;
+      const creationsDirectory = new Directory(Paths.document, 'creations');
+      creationsDirectory.create({ idempotent: true, intermediates: true });
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      let suffix = 0;
+      let savedFile = new File(creationsDirectory, `creation-${timestamp}.png`);
+      while (savedFile.exists) {
+        suffix += 1;
+        savedFile = new File(creationsDirectory, `creation-${timestamp}-${suffix}.png`);
+      }
+
+      await new File(capturedUri).copy(savedFile);
+      if (!savedFile.exists) {
+        throw new Error('The saved image file could not be verified.');
+      }
+      onSave();
+    } catch (error) {
+      console.error('Failed to save dress-up creation', error);
+      Alert.alert('Unable to save creation', 'Please try again.');
+    } finally {
+      photoZoom.value = savedZoom;
+      photoPanX.value = savedPanX;
+      photoPanY.value = savedPanY;
+      setIsSaving(false);
+    }
+  };
+  /* eslint-enable react-hooks/immutability */
 
   const selectDress = (dress: DressOption) => {
     setSizeSliderVisible(false);
@@ -336,6 +598,7 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
     if (pairArtwork) {
       const leftId = `accessory-${++accessoryIdCounter.current}`;
       const rightId = `accessory-${++accessoryIdCounter.current}`;
+      const pairId = `earring-pair-${leftId}`;
       setEditor((current) => {
         const existingEarringCount = current.items.filter(
           (item) => item.kind === 'accessory' && item.category === 'Earrings',
@@ -351,6 +614,7 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
           const artwork = pairArtwork[side];
           return {
             id,
+            pairId,
             catalogId: option.id,
             kind: 'accessory',
             category: 'Earrings',
@@ -423,6 +687,15 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
         ? current
         : { ...current, selectedItemId: itemId };
     });
+  };
+
+  const deselectLayerItem = () => {
+    setSizeSliderVisible(false);
+    setEditor((current) =>
+      current.selectedItemId === null
+        ? current
+        : { ...current, selectedItemId: null },
+    );
   };
 
   const updateTransform = (itemId: string, transform: Transform) => {
@@ -530,26 +803,39 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
 
     accessoryScaleStart.current = {
       itemId: selectedAccessory.id,
+      pairId: selectedAccessory.pairId,
       scale: selectedAccessory.scale,
       snapshot: snapshotState(editor),
     };
   };
 
   const updateAccessoryScale = (scale: number) => {
-    const itemId = accessoryScaleStart.current?.itemId;
-    if (!itemId) {
+    const resizeTarget = accessoryScaleStart.current;
+    if (!resizeTarget) {
       return;
     }
 
     setEditor((current) => {
-      const item = current.items.find((entry) => entry.id === itemId);
-      if (!item || item.kind !== 'accessory' || Math.abs(item.scale - scale) < 0.001) {
+      let changed = false;
+      const items = current.items.map((item) => {
+        const isTarget = resizeTarget.pairId
+          ? item.pairId === resizeTarget.pairId
+          : item.id === resizeTarget.itemId;
+        if (
+          !isTarget ||
+          item.kind !== 'accessory' ||
+          Math.abs(item.scale - scale) < 0.001
+        ) {
+          return item;
+        }
+
+        changed = true;
+        return { ...item, scale };
+      });
+      if (!changed) {
         return current;
       }
 
-      const items = current.items.map((entry) =>
-        entry.id === itemId ? { ...entry, scale } : entry,
-      );
       return { ...current, items };
     });
   };
@@ -562,8 +848,22 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
     }
 
     setEditor((current) => {
-      const item = current.items.find((entry) => entry.id === start.itemId);
-      if (!item || Math.abs(item.scale - start.scale) < 0.001) {
+      const previousScales = new Map(
+        start.snapshot.items.map((item) => [item.id, item.scale]),
+      );
+      const changed = current.items.some((item) => {
+        const isTarget = start.pairId
+          ? item.pairId === start.pairId
+          : item.id === start.itemId;
+        const previousScale = previousScales.get(item.id);
+        return (
+          isTarget &&
+          item.kind === 'accessory' &&
+          previousScale !== undefined &&
+          Math.abs(item.scale - previousScale) >= 0.001
+        );
+      });
+      if (!changed) {
         return current;
       }
 
@@ -668,14 +968,20 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
         <Text numberOfLines={1} style={styles.studioTitle}>Dress-Up Studio</Text>
         <Pressable
           accessibilityRole="button"
-          onPress={onSave}
-          style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
+          accessibilityState={{ disabled: isSaving || !imagesReady }}
+          disabled={isSaving || !imagesReady}
+          onPress={saveCreation}
+          style={({ pressed }) => [
+            styles.saveButton,
+            (isSaving || !imagesReady) && styles.disabledSaveButton,
+            pressed && styles.pressed,
+          ]}
         >
-          <Text style={styles.saveButtonText}>Save</Text>
+          <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
         </Pressable>
       </View>
 
-      <View style={styles.photoArea}>
+      <View pointerEvents={isSaving ? 'none' : 'auto'} style={styles.photoArea}>
         <View
           onLayout={({ nativeEvent }) => {
             const { width, height } = nativeEvent.layout;
@@ -687,34 +993,130 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
           }}
           style={styles.photoCanvas}
         >
-          <Image
-            accessibilityLabel="Photo selected for dress-up"
-            resizeMode="contain"
-            source={{ uri: photo.uri }}
-            style={styles.photoImage}
-          />
           {photoWidth > 0 && photoHeight > 0 && (
             <View
+              ref={captureViewRef}
+              collapsable={false}
               pointerEvents="box-none"
-              style={[
-                styles.layerPlane,
-                { left: photoX, top: photoY, width: photoWidth, height: photoHeight },
-              ]}
+              style={[styles.captureCanvas, { left: photoX, top: photoY, width: photoWidth, height: photoHeight }]}
             >
-              {editor.items.map((item, index) => (
-                <EditableLayerItem
-                  key={item.id}
-                  item={item}
-                  layerIndex={index}
-                  onSelect={selectLayerItem}
-                  onTransform={onGestureTransform}
-                  photoHeight={photoHeight}
-                  photoWidth={photoWidth}
-                  selected={editor.selectedItemId === item.id}
-                />
-              ))}
+              <Animated.View
+                style={[
+                  styles.zoomedComposition,
+                  { width: photoWidth, height: photoHeight },
+                  compositionPositionStyle,
+                ]}
+              >
+                <Animated.View
+                  style={[
+                    styles.zoomedCompositionInner,
+                    { width: photoWidth, height: photoHeight },
+                    compositionScaleStyle,
+                  ]}
+                >
+                  <GestureDetector gesture={photoPanGesture}>
+                    <Pressable
+                      accessible={false}
+                      onPress={() => {
+                        if (photoZoom.value === 1) {
+                          deselectLayerItem();
+                        }
+                      }}
+                      style={StyleSheet.absoluteFill}
+                    >
+                      <Image
+                        accessibilityLabel="Photo selected for dress-up"
+                        onError={() => markImageFailed(photoImageKey)}
+                        onLoad={() => markImageLoaded(photoImageKey)}
+                        pointerEvents="none"
+                        resizeMode="stretch"
+                        source={{ uri: photo.uri }}
+                        style={styles.capturePhotoImage}
+                      />
+                    </Pressable>
+                  </GestureDetector>
+                  <View
+                    pointerEvents="box-none"
+                    style={[styles.layerPlane, { left: 0, top: 0, width: photoWidth, height: photoHeight }]}
+                  >
+                    {editor.items.map((item, index) => (
+                      <EditableLayerItem
+                        key={item.id}
+                        item={item}
+                        imageKey={getLayerImageKey(item)}
+                        layerIndex={index}
+                        onImageError={markImageFailed}
+                        onImageLoad={markImageLoaded}
+                        onSelect={selectLayerItem}
+                        onTransform={onGestureTransform}
+                        photoHeight={photoHeight}
+                        photoWidth={photoWidth}
+                        photoZoom={photoZoom}
+                        selected={editor.selectedItemId === item.id}
+                        suppressSelectionOutline={isSaving}
+                      />
+                    ))}
+                  </View>
+                </Animated.View>
+              </Animated.View>
             </View>
           )}
+        </View>
+
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.zoomControls,
+            sizeSliderVisible && styles.zoomControlsAboveSize,
+          ]}
+        >
+          <Text style={styles.zoomLevelText}>
+            {Number.isInteger(photoZoomLevel) ? photoZoomLevel : photoZoomLevel.toFixed(1)}×
+          </Text>
+          <View
+            onLayout={({ nativeEvent }) => {
+              const { width, height } = nativeEvent.layout;
+              setZoomSliderSize((current) =>
+                current.width === width && current.height === height
+                  ? current
+                  : { width, height },
+              );
+            }}
+            style={styles.zoomSliderTrack}
+          >
+            {zoomSliderSize.height > 0 && (
+              <Slider
+                accessibilityLabel="Photo zoom"
+                accessibilityIncrements={['1', '2', '3', '4']}
+                accessibilityUnits="times"
+                maximumTrackTintColor="#E4D4EA"
+                maximumValue={4}
+                minimumTrackTintColor="#B3519A"
+                minimumValue={1}
+                onValueChange={updatePhotoZoom}
+                ref={zoomSliderRef}
+                step={0.1}
+                style={[
+                  styles.zoomSlider,
+                  {
+                    width: zoomSliderSize.height,
+                    left: (zoomSliderSize.width - zoomSliderSize.height) / 2,
+                    top: (zoomSliderSize.height - 36) / 2,
+                  },
+                ]}
+                thumbTintColor="#A64FC1"
+                value={photoZoomLevel}
+              />
+            )}
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Reset photo zoom to 1 times"
+            onPress={resetPhotoZoom}
+            style={({ pressed }) => [styles.zoomResetButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.zoomResetText}>1×</Text>
+          </Pressable>
         </View>
 
         {selectedAccessory && !sizeSliderVisible && (
@@ -770,35 +1172,47 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
       </View>
 
       <View style={styles.editingControls}>
-        <View style={styles.controlRow}>
+        <ScrollView
+          contentContainerStyle={styles.controlRow}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
           <ControlButton
             disabled={!selectedItem}
+            icon="↻"
             label={selectedItem?.kind === 'dress' ? 'Reset Dress' : 'Reset Item'}
             onPress={resetSelectedItem}
+            shortLabel="Reset"
           />
           <ControlButton
             disabled={!selectedItem}
+            icon="×"
             label={selectedItem?.kind === 'dress' ? 'Remove Dress' : 'Remove Item'}
             onPress={removeSelectedItem}
+            shortLabel="Remove"
           />
           <ControlButton
             disabled={editor.undoStack.length === 0}
+            icon="↶"
             label="Undo"
             onPress={undo}
+            shortLabel="Undo"
           />
-        </View>
-        <View style={styles.controlRow}>
           <ControlButton
             disabled={!selectedItem || editor.items[editor.items.length - 1]?.id === selectedItem.id}
+            icon="↑"
             label="Bring Forward"
             onPress={() => moveSelectedItem(1)}
+            shortLabel="Forward"
           />
           <ControlButton
             disabled={!selectedItem || editor.items[0]?.id === selectedItem.id}
+            icon="↓"
             label="Send Backward"
             onPress={() => moveSelectedItem(-1)}
+            shortLabel="Backward"
           />
-        </View>
+        </ScrollView>
       </View>
 
       <View style={styles.catalogStrip}>{renderCatalog()}</View>
@@ -836,23 +1250,32 @@ export default function DressUpStudio({ photo, onBack, onSave }: DressUpStudioPr
     </SafeAreaView>
   );
 }
-
 type EditableLayerItemProps = {
   item: LayerItem;
+  imageKey: string;
   layerIndex: number;
   photoWidth: number;
   photoHeight: number;
+  photoZoom: SharedValue<number>;
   selected: boolean;
+  suppressSelectionOutline: boolean;
+  onImageLoad: (imageKey: string) => void;
+  onImageError: (imageKey: string) => void;
   onSelect: (itemId: string) => void;
   onTransform: (itemId: string, x: number, y: number, scale: number, rotation: number) => void;
 };
 
 function EditableLayerItem({
   item,
+  imageKey,
   layerIndex,
   photoWidth,
   photoHeight,
+  photoZoom,
   selected,
+  suppressSelectionOutline,
+  onImageLoad,
+  onImageError,
   onSelect,
   onTransform,
 }: EditableLayerItemProps) {
@@ -884,11 +1307,21 @@ function EditableLayerItem({
     ? photoWidth * 0.78
     : item.category === 'Sunglasses'
       ? photoWidth * 0.38
+      : item.category === 'Handbags'
+        ? photoWidth * 0.3
+      : item.category === 'Necklaces'
+        ? photoWidth * 0.42
       : photoWidth * 0.4;
   const maxHeight = item.kind === 'dress'
     ? photoHeight * 0.78
     : item.category === 'Sunglasses'
       ? photoHeight * 0.18
+      : item.category === 'Handbags'
+        ? photoHeight * 0.5
+      : item.category === 'Necklaces'
+        ? photoHeight * 0.85
+      : item.category === 'Hats'
+        ? photoHeight * 0.6
       : photoHeight * 0.3;
   const itemWidth = isEarring
     ? Math.max(56, photoWidth * 0.14)
@@ -961,8 +1394,8 @@ function EditableLayerItem({
     },
     onUpdate: (event) => {
       'worklet';
-      translateX.value = panStartX.value + event.translationX;
-      translateY.value = panStartY.value + event.translationY;
+      translateX.value = panStartX.value + event.translationX / photoZoom.value;
+      translateY.value = panStartY.value + event.translationY / photoZoom.value;
       gestureChanged.value = true;
     },
     onDeactivate: (event) => {
@@ -1037,12 +1470,14 @@ function EditableLayerItem({
         style={[
           styles.layerItem,
           animatedStyle,
-          selected && !isEarring && styles.selectedLayerItem,
+          selected && !suppressSelectionOutline && styles.selectedLayerItem,
         ]}
       >
         {item.source && isEarring ? (
           <Animated.Image
             accessible={false}
+            onError={() => onImageError(imageKey)}
+            onLoad={() => onImageLoad(imageKey)}
             pointerEvents="none"
             resizeMode="contain"
             source={item.source}
@@ -1051,6 +1486,8 @@ function EditableLayerItem({
         ) : item.source ? (
           <Image
             accessible={false}
+            onError={() => onImageError(imageKey)}
+            onLoad={() => onImageLoad(imageKey)}
             resizeMode="contain"
             source={item.source}
             style={isEarring ? styles.earringLayerImage : styles.layerImage}
@@ -1125,17 +1562,22 @@ function EarringPairArtwork({ pair }: { pair: EarringPair }) {
 
 function ControlButton({
   disabled,
+  icon,
   label,
   onPress,
+  shortLabel,
 }: {
   disabled: boolean;
+  icon: string;
   label: string;
   onPress: () => void;
+  shortLabel: string;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -1144,7 +1586,8 @@ function ControlButton({
         pressed && styles.pressed,
       ]}
     >
-      <Text numberOfLines={1} style={styles.controlButtonText}>{label}</Text>
+      <Text style={styles.controlButtonIcon}>{icon}</Text>
+      <Text numberOfLines={1} style={styles.controlButtonText}>{shortLabel}</Text>
     </Pressable>
   );
 }
@@ -1194,6 +1637,9 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
   },
+  disabledSaveButton: {
+    opacity: 0.6,
+  },
   saveButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
@@ -1222,7 +1668,23 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  photoImage: {
+  captureCanvas: {
+    position: 'absolute',
+    overflow: 'hidden',
+  },
+  zoomedComposition: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    overflow: 'visible',
+  },
+  zoomedCompositionInner: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    overflow: 'visible',
+  },
+  capturePhotoImage: {
     position: 'absolute',
     top: 0,
     right: 0,
@@ -1233,6 +1695,56 @@ const styles = StyleSheet.create({
     position: 'absolute',
     overflow: 'hidden',
   },
+  zoomControls: {
+    position: 'absolute',
+    top: 8,
+    right: 4,
+    bottom: 56,
+    zIndex: 10,
+    width: 50,
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#F0D8EB',
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    elevation: 5,
+  },
+  zoomControlsAboveSize: {
+    bottom: 82,
+  },
+  zoomLevelText: {
+    minWidth: 38,
+    color: '#78438E',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  zoomSliderTrack: {
+    position: 'relative',
+    flex: 1,
+    width: '100%',
+    minHeight: 76,
+    marginVertical: 3,
+  },
+  zoomSlider: {
+    position: 'absolute',
+    height: 36,
+    transform: [{ rotate: '-90deg' }],
+  },
+  zoomResetButton: {
+    minWidth: 40,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: '#F1E2F8',
+  },
+  zoomResetText: {
+    color: '#78438E',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   layerItem: {
     position: 'absolute',
     alignItems: 'center',
@@ -1240,10 +1752,10 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   selectedLayerItem: {
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#DB72C7',
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 242, 252, 0.18)',
+    borderRadius: 10,
+    borderStyle: 'dashed',
   },
   layerImage: {
     width: '100%',
@@ -1299,9 +1811,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   editingControls: {
-    gap: 7,
-    paddingHorizontal: 16,
-    marginBottom: 6,
+    marginBottom: 2,
   },
   sizeButton: {
     position: 'absolute',
@@ -1378,25 +1888,35 @@ const styles = StyleSheet.create({
   },
   controlRow: {
     flexDirection: 'row',
-    gap: 7,
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
   },
   controlButton: {
-    flex: 1,
-    minHeight: 46,
+    width: 64,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
-    borderRadius: 15,
+    paddingHorizontal: 4,
+    borderRadius: 14,
     backgroundColor: '#F1E2F8',
+  },
+  controlButtonIcon: {
+    color: '#A64FC1',
+    fontSize: 17,
+    fontWeight: '800',
+    lineHeight: 19,
   },
   controlButtonText: {
     color: '#78438E',
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '700',
     textAlign: 'center',
   },
   disabledControl: {
-    opacity: 0.42,
+    opacity: 0.38,
+    backgroundColor: '#F4EEF5',
   },
   catalogStrip: {
     height: 104,
